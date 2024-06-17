@@ -21,6 +21,8 @@ from howtrader.trader.object import OrderData, TradeData, BarData, TickData
 from howtrader.trader.utility import round_to
 from decimal import Decimal
 
+from smartmoneyconcepts import smc
+
 database: BaseDatabase = get_database()
 
 from .base import (
@@ -523,6 +525,216 @@ class BacktestingEngine:
 
         self.output("finish calculating strategy's performance")
         return statistics
+    
+    def get_smc_data(self, datetime_list, close_price_list, open_price_list, high_price_list, low_price_list, volume_list):
+        results: Dict = {}
+        bar_dict: Dict = {}
+
+        bar_dict["close"] = close_price_list
+        bar_dict["open"] = open_price_list
+        bar_dict["high"] = high_price_list
+        bar_dict["low"] = low_price_list
+        bar_dict["volume"] = volume_list
+
+        ohlc = DataFrame(bar_dict, index=datetime_list)
+
+        swing_highs_lows_res = smc.swing_highs_lows(ohlc, swing_length=50)
+        swing_highs_lows_res.index = datetime_list
+        swing_highs = swing_highs_lows_res[swing_highs_lows_res["HighLow"] == 1.0]
+        swing_lows = swing_highs_lows_res[swing_highs_lows_res["HighLow"] == -1.0]
+
+        results["swing_highs"] = swing_highs
+        results["swing_lows"] = swing_lows
+
+        return results
+
+    def show_candle_chart(self, df: DataFrame = None):
+        # Show Candle char
+
+        if df is None:
+            df = self.daily_df
+
+        # Check for init DataFrame
+        if df is None:
+            return
+        
+        fig = make_subplots(
+            rows=1,
+            cols=1,
+            subplot_titles=["Candle"],
+            horizontal_spacing=0.7,
+            vertical_spacing=0.3
+        )
+
+        print(df.columns.tolist())
+        print("-----")
+        
+        bar_dict: Dict = {}
+        datetime_list = []
+        close_price_list = []
+        open_price_list = []
+        high_price_list = []
+        low_price_list = []
+        volume_list = []
+        for bardata in self.history_data:
+            # 'close_price', 'datetime', 'exchange', 'gateway_name', 'high_price', 'interval', 
+            # 'low_price', 'open_interest', 'open_price', 'symbol', 'turnover', 'volume', 'vt_symbol'
+
+            datetime_list.append(bardata.datetime)
+            close_price_list.append(bardata.close_price)
+            open_price_list.append(bardata.open_price)
+            high_price_list.append(bardata.high_price)
+            low_price_list.append(bardata.low_price)
+            volume_list.append(bardata.volume)
+
+        bar_dict["close_price"] = close_price_list
+        bar_dict["open_price"] = open_price_list
+        bar_dict["high_price_list"] = high_price_list
+        bar_dict["low_price_list"] = low_price_list
+        bar_df = DataFrame(bar_dict, index=datetime_list)
+        # print(bar_df)
+
+        candle_bar = go.Candlestick(
+            x=bar_df.index,
+            open=bar_df["open_price"],
+            high=bar_df["high_price_list"],
+            low=bar_df["low_price_list"],
+            close=bar_df["close_price"],
+            name="Candle"
+        )
+
+        # Generate trades dataframe
+        buy_to_open_list = []
+        buy_to_open_datetime_list = []
+        sell_to_close_list = []
+        sell_to_close_datetime_list = []
+
+        sell_to_open_list = []
+        sell_to_open_datetime_list = []
+        buy_to_close_list = []
+        buy_to_close_datetime_list = []
+
+        for trade in self.trades.values():
+            d: date = trade.datetime.date()
+            daily_result: DailyResult = self.daily_results[d]
+
+            trades_result = daily_result.__dict__["trades"]
+            for trade in trades_result:
+                # print(f"trade: {trade}")
+                # print(dir(trade))
+                # 'datetime', 'direction', 'exchange', 'gateway_name',
+                # 'offset', 'orderid', 'price', 'symbol', 'tradeid',
+                # 'volume', 'vt_orderid', 'vt_symbol', 'vt_tradeid'
+
+                direction = trade.direction
+                if (trade.offset == Offset.OPEN):
+                    if (direction == Direction.SHORT):
+                        sell_to_open_list.append(trade.price)
+                        sell_to_open_datetime_list.append(trade.datetime)
+                    elif (direction == Direction.LONG):
+                        buy_to_open_list.append(trade.price)
+                        buy_to_open_datetime_list.append(trade.datetime)
+
+                elif (trade.offset == Offset.CLOSE):
+                    if (direction == Direction.SHORT):
+                        sell_to_close_list.append(trade.price)
+                        sell_to_close_datetime_list.append(trade.datetime)
+                    elif (direction == Direction.LONG):
+                        buy_to_close_list.append(trade.price)
+                        buy_to_close_datetime_list.append(trade.datetime)
+
+                # elif (direction == Direction.NET)
+
+        print(f"len(buy_to_open): {len(buy_to_open_list)}")
+        print(f"len(sell_to_open): {len(sell_to_open_list)}")
+        print(f"len(sell_to_close): {len(sell_to_close_list)}")
+        print(f"len(buy_to_close): {len(buy_to_close_list)}")
+
+        buy_to_open = go.Scatter(
+            x=buy_to_open_datetime_list, y=buy_to_open_list,
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='triangle-up',
+                color='darkblue'
+            ),
+            name="Buy to Open"
+        )
+        sell_to_close = go.Scatter(
+            x=sell_to_close_datetime_list, y=sell_to_close_list,
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='triangle-down',
+                color='lightblue'
+            ),
+            name="Sell to Close"
+        )
+
+        sell_to_open = go.Scatter(
+            x=sell_to_open_datetime_list, y=sell_to_open_list,
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='triangle-down',
+                color='rgb(128, 0, 128)'
+            ),
+            name="Sell to Open"
+        )
+        buy_to_close = go.Scatter(
+            x=buy_to_close_datetime_list, y=buy_to_close_list,
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='triangle-up',
+                color='rgb(218, 112, 214)'
+            ),
+            name="Buy to Close"
+        )
+
+        # SMC Data
+        smc_data = self.get_smc_data(datetime_list,
+                                     close_price_list,
+                                     open_price_list,
+                                     high_price_list,
+                                     low_price_list,
+                                     volume_list)
+        swing_highs = go.Scatter(
+            x=smc_data["swing_highs"].index, y=smc_data["swing_highs"]["Level"],
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='star',
+                color='#5FE988'
+            ),
+            name="SMC Swing High"
+        )
+        swing_lows = go.Scatter(
+            x=smc_data["swing_lows"].index, y=smc_data["swing_lows"]["Level"],
+            mode="markers",
+            marker=dict(
+                size=15,
+                symbol='star',
+                color='#FA396D'
+            ),
+            name="SMC Swing Low"
+        )
+
+        fig.add_trace(candle_bar, row=1, col=1)
+
+        fig.add_trace(buy_to_open, row=1, col=1)
+        fig.add_trace(sell_to_close, row=1, col=1)
+
+        fig.add_trace(sell_to_open, row=1, col=1)
+        fig.add_trace(buy_to_close, row=1, col=1)
+
+        fig.add_trace(swing_highs, row=1, col=1)
+        fig.add_trace(swing_lows, row=1, col=1)
+
+        fig.update_yaxes(fixedrange=False)
+
+        fig.update_layout(height=900, width=1900)
+        fig.show()
 
     def show_chart(self, df: DataFrame = None):
         """"""
