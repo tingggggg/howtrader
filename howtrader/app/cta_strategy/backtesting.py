@@ -576,6 +576,18 @@ class BacktestingEngine:
         results["choch_bullish"] = choch_bullish
         results["choch_bearish"] = choch_bearish
 
+        # OB
+        ob_res = smc.ob(ohlc, swing_highs_lows_res, close_mitigation=False)
+        ob_res.index = datetime_list
+        ob_bullish = ob_res[ob_res["OB"] == 1.0]
+        ob_bearish = ob_res[ob_res["OB"] == -1.0]
+        ob_bullish["Mitigateddate"] = ob_bullish["MitigatedIndex"].apply(lambda x: datetime_list[int(x)])
+        ob_bearish["Mitigateddate"] = ob_bearish["MitigatedIndex"].apply(lambda x: datetime_list[int(x)])
+
+        results["ob_bullish"] = ob_bullish
+        results["ob_bearish"] = ob_bearish
+
+
         return results
 
     def show_candle_chart(self, df: DataFrame = None):
@@ -819,6 +831,48 @@ class BacktestingEngine:
             textposition="middle center",
             name="ChoCH"
         )
+
+
+        ob_bullish_list = list(smc_data["ob_bullish"].itertuples(index=True, name='Pandas'))
+        for row in ob_bullish_list:
+            fig.add_shape(
+                type="rect",
+                x0=row.Index, y0=row.Bottom,  # Left-Bottom
+                x1=row.Mitigateddate, y1=row.Top,  # Top-Right
+                line=dict(color="#17C384", width=2),
+            )
+            fig.add_annotation(
+                x=row.Index,
+                y=row.Bottom,
+                text=f"OB Vol:{str(int(row.OBVolume))} {str(row.Percentage)}%",
+                showarrow=False,
+                font=dict(
+                    size=12,
+                    color="#17C384"
+                ),
+                align="center",
+                valign="middle"
+            )
+        ob_bearish_list = list(smc_data["ob_bearish"].itertuples(index=True, name='Pandas'))
+        for row in ob_bearish_list:
+            fig.add_shape(
+                type="rect",
+                x0=row.Index, y0=row.Bottom,  # Left-Bottom
+                x1=row.Mitigateddate, y1=row.Top,  # Top-Right
+                line=dict(color="#E64661", width=2),
+            )
+            fig.add_annotation(
+                x=row.Index,
+                y=row.Bottom,
+                text=f"OB Vol:{str(int(row.OBVolume))} {str(row.Percentage)}%",
+                showarrow=False,
+                font=dict(
+                    size=12,
+                    color="#E64661"
+                ),
+                align="center",
+                valign="middle"
+            )
 
 
         fig.add_trace(candle_bar, row=1, col=1)
